@@ -66,7 +66,6 @@ class CoreMembraneMod(CoreMod):
         self.dt = 0
         self.tstop = 0
 
-    @abstractmethod
     def initialize(self,*args,**kwargs):
         self.time_vector = h.Vector().record(h._ref_t)
         
@@ -87,7 +86,6 @@ class CoreMembraneMod(CoreMod):
 
                     self.record_dict[variable].append(vec)
 
-    @abstractmethod
     def finalize(self,*args,**kwargs):
         io.log_info('Saving membrane report variables {} file to {}'.format(self.variable_name, self.file_name))
         fp = h5py.File(self.file_name, "w")
