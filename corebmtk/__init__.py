@@ -18,92 +18,101 @@ import numpy as np
 
 pc = h.ParallelContext()    # object to access MPI methods
 
-
-class CoreMod():
-
-    def __init__(self,*args,**kwargs):
-        pass
-
-    @abstractmethod
-    def initialize(self,*args,**kwargs):
-        pass
-
-    @abstractmethod
-    def finalize(self,*args,**kwargs):
-        pass
-
-class CoreSpikesMod(CoreMod):
-
-    def __init__(self,*args,**kwargs):
-        self.corenrn_all_spike_t = h.Vector()
-        self.corenrn_all_spike_gids = h.Vector()
-        self.spikes_file = kwargs.get('spikes_file')
+class CoreSpikesMod(mods.SpikesMod):
+    """
+    Class continues to function as is, just need to run block before output.
+    """
+    def __init__(self, *args,**kwargs):
+        super(CoreSpikesMod, self).__init__(*args,**kwargs)
         
     def initialize(self,*args,**kwargs):
-        pc.spike_record(-1, self.corenrn_all_spike_t, self.corenrn_all_spike_gids )
+        super(CoreSpikesMod, self).initialize(*args,**kwargs)
 
     def finalize(self,*args,**kwargs):
-        io.log_info('Saving spikes file to {}'.format(self.spikes_file))
-        np_corenrn_all_spike_t = self.corenrn_all_spike_t.to_python()
-        np_corenrn_all_spike_gids = self.corenrn_all_spike_gids.to_python()
+        self.block(kwargs['sim'],None)
+        super(CoreSpikesMod, self).finalize(*args,**kwargs)
+
+
+class CoreNetconReport(mods.NetconReport):
+
+    def __init__(self, *args,**kwargs):
+        super(CoreNetconReport, self).__init__(*args,**kwargs)
         
-        fp = h5py.File(self.spikes_file, "w")
-        grp = fp.create_group('spikes/biophysical')
-        grp.create_dataset('node_ids',data=list(np_corenrn_all_spike_gids))
-        grp.create_dataset('timestamps',data=list(np_corenrn_all_spike_t))
-        fp.close()
-
-class CoreMembraneMod(CoreMod):
-
-    def __init__(self,*args,**kwargs):
-        self.variable_name = kwargs['variable_name']
-        self.cells = kwargs['cells']
-        self.sections = kwargs['sections']
-        self.file_name = os.path.join(kwargs['tmp_dir'],kwargs['file_name'])
-
-        self.time_vector = None
-        self.record_dict = {}
-        self.dt = 0
-        self.tstop = 0
-
     def initialize(self,*args,**kwargs):
-        self.time_vector = h.Vector().record(h._ref_t)
-        
-        for gid in self.cells:
+        super(CoreNetconReport, self).initialize(*args,**kwargs)
+
+    def finalize(self,*args,**kwargs):
+        self.block(kwargs['sim'],None)
+        super(CoreNetconReport, self).finalize(*args,**kwargs)
+
+
+class CoreSomaReport(mods.SomaReport):
+
+    def __init__(self, *args,**kwargs):
+        super(CoreSomaReport, self).__init__(*args,**kwargs)
+        self.record_dict = {} # gid:{variable:vector}
+
+    def initialize(self, sim):
+        super(CoreSomaReport, self).initialize(sim)
+
+        for gid in self._local_gids:
             flag = pc.gid_exists(gid)
             if flag > 0 :
                 cell = pc.gid2cell(gid)
-                for variable in self.variable_name:
+                for variable in self._variables:
                     vec = h.Vector()
                     if variable == 'v':
-                        vec.record(cell.soma[0](0.5)._ref_v) # TODO only allows for soma
+                        vec.record(cell.soma[0](0.5)._ref_v)
                     else:
                         var_ref = getattr(cell.soma[0](0.5), variable)
-                        vec.record(var_ref) # TODO only allows for soma
+                        vec.record(var_ref)
 
-                    if not self.record_dict.get(variable):
-                        self.record_dict[variable] = []
+                    if not self.record_dict.get(gid):
+                        self.record_dict[gid] = {}
 
-                    self.record_dict[variable].append(vec)
+                    if not self.record_dict[gid].get(variable):
+                        self.record_dict[gid][variable] = {}
 
-    def finalize(self,*args,**kwargs):
-        io.log_info('Saving membrane report variables {} file to {}'.format(self.variable_name, self.file_name))
-        fp = h5py.File(self.file_name, "w")
+                    self.record_dict[gid][variable] = vec
 
-        mapping = fp.create_group('mapping')
-        mapping.create_dataset('gids', self.cells)
-        mapping.create_dataset('time', [0, self.tstop, self.dt])
+    def finalize(self, sim):
+        io.log_info('Node saving CoreSomaReport to {}'.format(self._file_name))
+        
+        # reformat self.record_dict to be a bit easier to deal with
+        for gid, variables in self.record_dict.items():
+            for var, vector in variables.items():
+                self.record_dict[gid][var] = list(np.array(vector))
 
-        for variable, vec_list in self.record_dict.items():      
-            data = []
-            for vec in vec_list:
-                np_vec = vec.to_python()
-                data.append(list(np_vec))
+        for tstep in range(sim.n_steps):
+            
+            # save all necessary cells/variables at the current time-step into memory
+            if not self._record_on_step(tstep):
+                return
 
-            grp = fp.create_group(f"{variable}")
-            grp.create_dataset('data',data=np.array(data).T)
+            for gid in self._local_gids:
+                pop_id = self._gid_map.get_pool_id(gid)
+                cell = sim.net.get_cell_gid(gid)
+                for var_name in self._variables:
+                    #var_val = getattr(cell.hobj.soma[0](0.5), var_name)
+                    var_val = self.record_dict[gid][var_name][tstep]
+                    self._var_recorder.record_cell(
+                        pop_id.node_id,
+                        population=pop_id.population,
+                        vals=[var_val],
+                        tstep=self._curr_step
+                    )
 
-        fp.close()
+                for var_name, fnc in self._transforms.items():
+                    #var_val = getattr(cell.hobj.soma[0](0.5), var_name)
+                    var_val = self.record_dict[gid][var_name][tstep]
+                    new_val = fnc(var_val)
+                    self._var_recorder.record_cell(
+                        pop_id.node_id,
+                        population=pop_id.population,
+                        vals=[new_val],
+                        tstep=self._curr_step)
+        self.block(sim,None)
+        super(CoreSomaReport, self).finalize(sim)
 
 class CoreECPMod(mods.EcpMod):
     """
@@ -121,7 +130,7 @@ class CoreECPMod(mods.EcpMod):
     def initialize(self, sim):
         super(CoreECPMod, self).initialize(sim)
         # Start recording of im (usually retrieved from cell.get_im)
-        for gid in self._cells:
+        for gid in self._local_gids:
             flag = pc.gid_exists(gid)
             if flag > 0 :
                 cell = pc.gid2cell(gid)
@@ -167,16 +176,17 @@ class CoreECPMod(mods.EcpMod):
         super(CoreECPMod, self).finalize(sim)
 
 
-
 class CoreBioSimulator(bionet.BioSimulator):
     """
     A sub class implementation of bionet.BioSimulator compatible with CoreNeuron
 
     Use:
+    import corebmtk
+
     Replace 
         sim = bionet.BioSimulator.from_config(conf, network=graph)
     With
-        sim = CoreBioSimulator.from_config(conf, network=graph)
+        sim = corebmtk.CoreBioSimulator.from_config(conf, network=graph)
     """
 
     def __init__(self, network, dt, tstop, v_init, celsius, nsteps_block, start_from_state=False, gpu=False):
@@ -246,11 +256,11 @@ class CoreBioSimulator(bionet.BioSimulator):
 
     @classmethod
     def from_config(cls, config, network, set_recordings=True, enable_core_mods=True, gpu=False):
-        sim = super(CoreBioSimulator, cls).from_config(config, network, set_recordings=True)
+        sim = super(CoreBioSimulator, cls).from_config(config, network, set_recordings=set_recordings)
         sim.enable_core_mods = enable_core_mods
         sim.config = config
 
-        coreneuron.enable = True
+        coreneuron.enable = True # We assume we're using core neuron if you're using the CoreBioSimulator class
         if gpu:
             coreneuron.gpu = True
 
@@ -263,16 +273,13 @@ class CoreBioSimulator(bionet.BioSimulator):
 
             elif report.module == 'netcon_report':
                 #mod = mods.NetconReport(**report.params)
+                mod = CoreNetconReport(**report.params)
                 io.log_warning('Core Neuron BMTK Module {} not implemented, skipping.'.format(report.module))
-                continue
 
             elif isinstance(report, reports.MembraneReport):
                 if report.params['sections'] == 'soma':
-                    mod = CoreMembraneMod(**report.params)
-                    if report.params.get("cells") == 'all':
-                        mod.cells = sim.biophysical_gids
-                    mod.dt = sim.dt
-                    mod.tstop = sim.tstop
+                    mod = CoreSomaReport(**report.params)
+                    
                 else:
                     #mod = mods.MembraneReport(**report.params)
                     io.log_warning('Core Neuron BMTK Module {} not implemented, skipping.'.format(report.module))
