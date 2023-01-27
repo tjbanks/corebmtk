@@ -37,11 +37,53 @@ class CoreNetconReport(mods.NetconReport):
 
     def __init__(self, *args,**kwargs):
         super(CoreNetconReport, self).__init__(*args,**kwargs)
+        self.record_dict = {} # {gid:{varname:[record list]}}
         
     def initialize(self,*args,**kwargs):
         super(CoreNetconReport, self).initialize(*args,**kwargs)
 
+        for gid, netcon_objs in self._object_lookup.items(): # _object_lookup? or local_cells
+            for var_name in self._variables:
+                
+                vecs = []
+                for syn in netcon_objs:
+                    vec = h.Vector()
+                    var_ref = getattr(syn, var_name)
+                    vec.record(var_ref)
+                    vecs.append(vec)
+
+                if not self.record_dict.get(gid):
+                    self.record_dict[gid] = {}
+
+                self.record_dict[gid][var_name] = vecs
+
+
     def finalize(self,*args,**kwargs):
+        for gid, netcon_objs in self._object_lookup.items():
+            for var_name in self._variables:
+                self.record_dict[gid][var_name] = np.array(self.record_dict[gid][var_name])
+
+        for tstep in range(sim.n_steps):
+            
+            # save all necessary cells/variables at the current time-step into memory
+            if not self._record_on_step(tstep):
+                return
+
+            for gid, netcon_objs in self._object_lookup.items():
+                pop_id = self._gid_map.get_pool_id(gid)
+                for var_name in self._variables:
+                    #syn_values = [getattr(syn, var_name) for syn in netcon_objs]
+                    syn_values = self.record_dict[gid][var_name][tstep]
+                if syn_values:
+                    self._var_recorder.record_cell(
+                        pop_id.node_id,
+                        population=pop_id.population,
+                        vals=syn_values,
+                        tstep=self._curr_step
+                    )
+
+            self._curr_step += 1
+
         self.block(kwargs['sim'],None)
         super(CoreNetconReport, self).finalize(*args,**kwargs)
 
@@ -69,9 +111,6 @@ class CoreSomaReport(mods.SomaReport):
 
                     if not self.record_dict.get(gid):
                         self.record_dict[gid] = {}
-
-                    if not self.record_dict[gid].get(variable):
-                        self.record_dict[gid][variable] = {}
 
                     self.record_dict[gid][variable] = vec
 
