@@ -24,9 +24,16 @@ Some recoring mechanisms are not yet implemented. See run output for more info.
 
 Implemented recording modules:
 
-1. Spikes
-2. Membrane recording
-3. ECP
+1. `reports.SpikesReport`
+1. `netcon_report`
+1. `reports.MembraneReport (report.params['sections'] == 'soma')`
+1. `reports.ECPReport`
+
+Modules NOT implemented
+
+1. `mods.MembraneReport` (general)
+1. `reports.ClampReport`
+1. `save_synapses`
 
 ### Troubleshooting
 

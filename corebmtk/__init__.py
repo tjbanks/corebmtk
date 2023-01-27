@@ -48,7 +48,7 @@ class CoreNetconReport(mods.NetconReport):
                 vecs = []
                 for syn in netcon_objs:
                     vec = h.Vector()
-                    var_ref = getattr(syn, var_name)
+                    var_ref = getattr(syn, f'_ref_{var_name}')
                     vec.record(var_ref)
                     vecs.append(vec)
 
@@ -61,8 +61,9 @@ class CoreNetconReport(mods.NetconReport):
     def finalize(self,*args,**kwargs):
         for gid, netcon_objs in self._object_lookup.items():
             for var_name in self._variables:
-                self.record_dict[gid][var_name] = np.array(self.record_dict[gid][var_name])
-
+                self.record_dict[gid][var_name] = np.array(self.record_dict[gid][var_name]).T
+        
+        sim = kwargs['sim']
         for tstep in range(sim.n_steps):
             
             # save all necessary cells/variables at the current time-step into memory
@@ -73,7 +74,7 @@ class CoreNetconReport(mods.NetconReport):
                 pop_id = self._gid_map.get_pool_id(gid)
                 for var_name in self._variables:
                     #syn_values = [getattr(syn, var_name) for syn in netcon_objs]
-                    syn_values = self.record_dict[gid][var_name][tstep]
+                    syn_values = list(self.record_dict[gid][var_name][tstep])
                 if syn_values:
                     self._var_recorder.record_cell(
                         pop_id.node_id,
@@ -313,7 +314,6 @@ class CoreBioSimulator(bionet.BioSimulator):
             elif report.module == 'netcon_report':
                 #mod = mods.NetconReport(**report.params)
                 mod = CoreNetconReport(**report.params)
-                io.log_warning('Core Neuron BMTK Module {} not implemented, skipping.'.format(report.module))
 
             elif isinstance(report, reports.MembraneReport):
                 if report.params['sections'] == 'soma':
