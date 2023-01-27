@@ -1,6 +1,11 @@
 # corebmtk
 A module to allow BMTK to function with Core Neuron before official support.
 
+Currently, BMTK uses `h.run` and `extracellular` NEURON mechanisms, which are both incompatible with CoreNeuron.
+
+`corebmtk` uses `pc.psolve` and takes an alternate approach to recording and storing output. The goal of this project
+was to maintain all of BMTK's functionality while allowing for the use of CoreNeuron.
+
 ### Installation
 
 ```
@@ -56,3 +61,5 @@ Change your `ecp report` to use `"module": "ecp"` instead of `"module": "extrace
 ### Acknowledgments
 
 Thanks [@gregglickert](https://github.com/gregglickert) for kicking this project off.
+
+[BMTK](https://github.com/AllenInstitute/bmtk/)
