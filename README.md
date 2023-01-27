@@ -52,3 +52,7 @@ Change your `ecp report` to use `"module": "ecp"` instead of `"module": "extrace
       "electrode_channels": "all"
     }
 ```
+
+### Acknowledgments
+
+Thanks [@gregglickert](https://github.com/gregglickert) for kicking this project off.
