@@ -105,6 +105,68 @@ class CoreMembraneMod(CoreMod):
 
         fp.close()
 
+class CoreECPMod(mods.EcpMod):
+    """
+    Extracellular mechanisms are not allowed in CoreNEURON
+    This module overwrites the existing framework by calculating
+    the lfp at the end of the simulation by recording cell._ref_i_membrane_
+    We skip the step phase and incorporate it into initialize and finalize
+    """
+
+    def __init__(self, *args,**kwargs):
+        super(CoreECPMod, self).__init__(*args,**kwargs)
+        self.cell_imvec = {} # gid:ecp
+        self.file_name = kwargs['file_name']
+
+    def initialize(self, sim):
+        super(CoreECPMod, self).initialize(sim)
+        # Start recording of im (usually retrieved from cell.get_im)
+        for gid in self._cells:
+            flag = pc.gid_exists(gid)
+            if flag > 0 :
+                cell = pc.gid2cell(gid)
+                for sec in cell.all: # record _ref_i_membrane_ for each segment
+                    for seg in sec:
+                        vec = h.Vector()
+                        vec.record(seg._ref_i_membrane_)
+                
+                        if not self.cell_imvec.get(gid):
+                            self.cell_imvec[gid] = []
+                        self.cell_imvec[gid].append(vec)
+
+    def finalize(self, sim):
+        io.log_info('Node saving ecp report to {}'.format(self.file_name))
+        
+        im_steps = {}
+
+        for gid in self._local_gids:  # compute ecp only from the biophysical cells
+            im_steps[gid] = np.array([vec for vec in self.cell_imvec[gid]]).T
+
+        for n_time in range(sim.n_steps):
+
+            if self._block_step == self._block_size:
+                self.block(sim, (n_time-self._block_size, n_time))
+
+            for gid in self._local_gids:
+
+                im = im_steps[gid][n_time]
+                tr = self._rel.get_transfer_resistance(gid)
+                                
+                # calculate the ecp/lfp in post processing since we now have a segment by segment recording
+                ecp = np.dot(tr, im)
+
+                if gid in self._saved_gids.keys():
+                    # save individual contribution
+                    self._saved_gids[gid][self._block_step, :] = ecp
+
+                # add to total ecp contribution
+                self._data_block[self._block_step, :] += ecp
+            
+            self._block_step +=1
+
+        super(CoreECPMod, self).finalize(sim)
+
+
 
 class CoreBioSimulator(bionet.BioSimulator):
     """
@@ -144,14 +206,14 @@ class CoreBioSimulator(bionet.BioSimulator):
             return
 
         for mod in self._core_mods:
-           mod.initialize(self)
+           mod.initialize(sim=self)
 
     def _finalize_mods(self):
         if not self.enable_core_mods:
             return
 
         for mod in self._core_mods:
-            mod.finalize(self)
+            mod.finalize(sim=self)
 
 
     def run(self):
@@ -159,6 +221,7 @@ class CoreBioSimulator(bionet.BioSimulator):
         Run the simulation
         """
         
+        self.h.cvode.use_fast_imem(1)
         self._init_mods()
 
         self.start_time = h.startsw()
@@ -170,7 +233,7 @@ class CoreBioSimulator(bionet.BioSimulator):
         io.log_info('Starting timestep: {} at t_sim: {:.3f} ms'.format(self.tstep, h.t))
         io.log_info('Block save every {} steps'.format(self.nsteps_block))
 
-        h.finitialize(self.v_init * mV)           
+        self.h.finitialize(self.v_init * mV)           
         pc.psolve(h.tstop)            
         pc.barrier()
         
@@ -208,8 +271,8 @@ class CoreBioSimulator(bionet.BioSimulator):
                     mod = CoreMembraneMod(**report.params)
                     if report.params.get("cells") == 'all':
                         mod.cells = sim.biophysical_gids
-                        mod.dt = sim.dt
-                        mod.tstop = sim.tstop
+                    mod.dt = sim.dt
+                    mod.tstop = sim.tstop
                 else:
                     #mod = mods.MembraneReport(**report.params)
                     io.log_warning('Core Neuron BMTK Module {} not implemented, skipping.'.format(report.module))
@@ -219,13 +282,23 @@ class CoreBioSimulator(bionet.BioSimulator):
                 io.log_warning('Core Neuron BMTK Module {} not implemented, skipping.'.format(report.module))
                 continue
 
-            elif isinstance(report, reports.ECPReport):
+            elif isinstance(report, reports.ECPReport) or report.module == 'ecp':
                 #mod = mods.EcpMod(**report.params)
+                mod = CoreECPMod(**report.params)
+                if report.params.get("cells") == 'all':
+                    mod._cells = list(sim.biophysical_gids)
+
+                def setup_ecp(cell):
+                    # Same as cell.setup_ecp BUT does not inserte extracellular mech
+                    cell.im_ptr = h.PtrVector(cell.morphology.nseg)  # pointer vector
+                    # used for gathering an array of  i_membrane values from the pointer vector
+                    cell.im_ptr.ptr_update_callback(cell.set_im_ptr)
+                    cell.imVec = h.Vector(cell.morphology.nseg)
+
                 # Set up the ability for ecp on all relevant cells
-                #for gid, cell in network.cell_type_maps('biophysical').items():
-                #    cell.setup_ecp()
-                io.log_warning('Core Neuron BMTK Module {} not implemented, skipping.'.format(report.module))
-                continue
+                for gid, cell in network.cell_type_maps('biophysical').items():
+                    setup_ecp(cell)
+                    
 
             elif report.module == 'save_synapses':
                 #mod = mods.SaveSynapses(**report.params)
