@@ -190,7 +190,7 @@ class CoreECPMod(mods.EcpMod):
         ecp_steps = {}
 
         for gid in self._local_gids:  # compute ecp only from the biophysical cells
-            tr = self._rel.get_transfer_resistance(gid)\
+            tr = self._rel.get_transfer_resistance(gid)
             ecp_steps[gid] = np.tensordot(np.array([vec for vec in self.cell_imvec[gid]]).T,tr,axes=((1,1)))
 
         for n_time in range(sim.n_steps):
