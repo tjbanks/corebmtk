@@ -94,6 +94,7 @@ class CoreSomaReport(mods.SomaReport):
     def __init__(self, *args,**kwargs):
         super(CoreSomaReport, self).__init__(*args,**kwargs)
         self.record_dict = {} # gid:{variable:vector}
+        self.h.cvode.cache_efficient(1)
 
     def initialize(self, sim):
         super(CoreSomaReport, self).initialize(sim)
@@ -186,10 +187,11 @@ class CoreECPMod(mods.EcpMod):
     def finalize(self, sim):
         io.log_info('Node saving ecp report to {}'.format(self.file_name))
         
-        im_steps = {}
+        ecp_steps = {}
 
         for gid in self._local_gids:  # compute ecp only from the biophysical cells
-            im_steps[gid] = np.array([vec for vec in self.cell_imvec[gid]]).T
+            tr = self._rel.get_transfer_resistance(gid)\
+            ecp_steps[gid] = np.tensordot(np.array([vec for vec in self.cell_imvec[gid]]).T,tr,axes=((1,1)))
 
         for n_time in range(sim.n_steps):
 
@@ -198,11 +200,7 @@ class CoreECPMod(mods.EcpMod):
 
             for gid in self._local_gids:
 
-                im = im_steps[gid][n_time]
-                tr = self._rel.get_transfer_resistance(gid)
-                                
-                # calculate the ecp/lfp in post processing since we now have a segment by segment recording
-                ecp = np.dot(tr, im)
+                ecp = ecp_steps[gid][n_time][0]
 
                 if gid in self._saved_gids.keys():
                     # save individual contribution
