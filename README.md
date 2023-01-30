@@ -1,5 +1,5 @@
 # corebmtk
-A module to allow [BMTK](https://github.com/AllenInstitute/bmtk/) to function with Core Neuron before official support.
+A module to allow [BMTK](https://github.com/AllenInstitute/bmtk/) to function with [Core Neuron](https://github.com/BlueBrain/CoreNeuron/) before official support.
 
 Currently, BMTK uses `h.run` and `extracellular` NEURON mechanisms, which are both incompatible with CoreNeuron.
 
