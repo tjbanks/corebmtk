@@ -1,5 +1,6 @@
 from abc import abstractmethod
 import os
+import json
 import time
 import warnings
 
@@ -9,7 +10,6 @@ from bmtk.simulator import bionet
 from bmtk.simulator.bionet.io_tools import io
 from bmtk.simulator.bionet import modules as mods
 import bmtk.simulator.utils.simulation_reports as reports
-import h5py
 import neuron
 from neuron import coreneuron
 from neuron import h
@@ -17,6 +17,17 @@ from neuron.units import mV
 import numpy as np
 
 pc = h.ParallelContext()    # object to access MPI methods
+
+from bmtk.simulator.bionet import nrn
+from bmtk.simulator.bionet import Config as bmtkConfig
+
+MPI_Rank = int(pc.id())
+
+class Config(bmtkConfig):
+
+    def load_nrn_modules(self):
+        # We don't want to load the mechs, x86_64/special will do this for you
+        nrn.load_neuron_modules(None, self.templates_dir)
 
 class CoreSpikesMod(mods.SpikesMod):
     """
