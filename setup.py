@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="corebmtk",
-    version="0.0.8",
+    version="0.1.0",
     author="Tyler Banks",
     author_email="tbanks@mail.missouri.edu",
     description="corebmtk",
