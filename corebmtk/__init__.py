@@ -21,6 +21,7 @@ pc = h.ParallelContext()    # object to access MPI methods
 from bmtk.simulator.bionet import nrn
 from bmtk.simulator.bionet import Config as bmtkConfig
 
+MPI_Rank = int(pc.id())
 
 class Config(bmtkConfig):
 
@@ -40,7 +41,6 @@ class CoreSpikesMod(mods.SpikesMod):
 
     def finalize(self,*args,**kwargs):
         self.block(kwargs['sim'],None)
-        pc.barrier()
         super(CoreSpikesMod, self).finalize(*args,**kwargs)
 
 
@@ -49,6 +49,7 @@ class CoreNetconReport(mods.NetconReport):
     def __init__(self, *args,**kwargs):
         super(CoreNetconReport, self).__init__(*args,**kwargs)
         self.record_dict = {} # {gid:{varname:[record list]}}
+        self._curr_step = 0
         
     def initialize(self,*args,**kwargs):
         super(CoreNetconReport, self).initialize(*args,**kwargs)
@@ -70,6 +71,7 @@ class CoreNetconReport(mods.NetconReport):
 
 
     def finalize(self,*args,**kwargs):
+        io.log_info('Node saving CoreNetconReport to {}'.format(self._file_name))
         for gid, netcon_objs in self._object_lookup.items():
             for var_name in self._variables:
                 self.record_dict[gid][var_name] = np.array(self.record_dict[gid][var_name]).T
@@ -78,8 +80,8 @@ class CoreNetconReport(mods.NetconReport):
         for tstep in range(sim.n_steps):
             
             # save all necessary cells/variables at the current time-step into memory
-            if not self._record_on_step(tstep):
-                return
+            #if not self._record_on_step(tstep):
+            #    return
 
             for gid, netcon_objs in self._object_lookup.items():
                 pop_id = self._gid_map.get_pool_id(gid)
@@ -97,7 +99,6 @@ class CoreNetconReport(mods.NetconReport):
             self._curr_step += 1
 
         self.block(kwargs['sim'],None)
-        pc.barrier()
         super(CoreNetconReport, self).finalize(*args,**kwargs)
 
 
@@ -106,7 +107,8 @@ class CoreSomaReport(mods.SomaReport):
     def __init__(self, *args,**kwargs):
         super(CoreSomaReport, self).__init__(*args,**kwargs)
         self.record_dict = {} # gid:{variable:vector}
-        self.h.cvode.cache_efficient(1)
+        self._curr_step = 0
+        h.cvode.cache_efficient(1)
 
     def initialize(self, sim):
         super(CoreSomaReport, self).initialize(sim)
@@ -129,6 +131,7 @@ class CoreSomaReport(mods.SomaReport):
                     self.record_dict[gid][variable] = vec
 
     def finalize(self, sim):
+        pc.barrier()
         io.log_info('Node saving CoreSomaReport to {}'.format(self._file_name))
         
         # reformat self.record_dict to be a bit easier to deal with
@@ -139,8 +142,8 @@ class CoreSomaReport(mods.SomaReport):
         for tstep in range(sim.n_steps):
             
             # save all necessary cells/variables at the current time-step into memory
-            if not self._record_on_step(tstep):
-                return
+            #if not self._record_on_step(tstep):
+            #    return
 
             for gid in self._local_gids:
                 pop_id = self._gid_map.get_pool_id(gid)
@@ -164,8 +167,8 @@ class CoreSomaReport(mods.SomaReport):
                         population=pop_id.population,
                         vals=[new_val],
                         tstep=self._curr_step)
+            self._curr_step += 1
         self.block(sim,None)
-        pc.barrier()
         super(CoreSomaReport, self).finalize(sim)
 
 class CoreECPMod(mods.EcpMod):
@@ -223,7 +226,7 @@ class CoreECPMod(mods.EcpMod):
                 self._data_block[self._block_step, :] += ecp
             
             self._block_step +=1
-        pc.barrier()
+
         super(CoreECPMod, self).finalize(sim)
 
 
