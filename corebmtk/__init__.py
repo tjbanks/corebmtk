@@ -1,5 +1,6 @@
 from abc import abstractmethod
 import os
+import json
 import time
 import warnings
 
@@ -9,7 +10,6 @@ from bmtk.simulator import bionet
 from bmtk.simulator.bionet.io_tools import io
 from bmtk.simulator.bionet import modules as mods
 import bmtk.simulator.utils.simulation_reports as reports
-import h5py
 import neuron
 from neuron import coreneuron
 from neuron import h
@@ -17,6 +17,16 @@ from neuron.units import mV
 import numpy as np
 
 pc = h.ParallelContext()    # object to access MPI methods
+
+from bmtk.simulator.bionet import nrn
+from bmtk.simulator.bionet import Config as bmtkConfig
+
+
+class Config(bmtkConfig):
+
+    def load_nrn_modules(self):
+        # We don't want to load the mechs, x86_64/special will do this for you
+        nrn.load_neuron_modules(None, self.templates_dir)
 
 class CoreSpikesMod(mods.SpikesMod):
     """
@@ -30,6 +40,7 @@ class CoreSpikesMod(mods.SpikesMod):
 
     def finalize(self,*args,**kwargs):
         self.block(kwargs['sim'],None)
+        pc.barrier()
         super(CoreSpikesMod, self).finalize(*args,**kwargs)
 
 
@@ -86,6 +97,7 @@ class CoreNetconReport(mods.NetconReport):
             self._curr_step += 1
 
         self.block(kwargs['sim'],None)
+        pc.barrier()
         super(CoreNetconReport, self).finalize(*args,**kwargs)
 
 
@@ -153,6 +165,7 @@ class CoreSomaReport(mods.SomaReport):
                         vals=[new_val],
                         tstep=self._curr_step)
         self.block(sim,None)
+        pc.barrier()
         super(CoreSomaReport, self).finalize(sim)
 
 class CoreECPMod(mods.EcpMod):
@@ -210,7 +223,7 @@ class CoreECPMod(mods.EcpMod):
                 self._data_block[self._block_step, :] += ecp
             
             self._block_step +=1
-
+        pc.barrier()
         super(CoreECPMod, self).finalize(sim)
 
 
