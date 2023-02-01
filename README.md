@@ -24,6 +24,13 @@ import corebmtk
 sim = corebmtk.CoreBioSimulator.from_config(conf, network=graph)
 ```
 
+When using MPI you'll have to replace your config as well. This wrapper prevents loading of mechanisms prior to running with `x86_64/special`.
+
+```
+# conf = bionet.Config.from_json(config_file, validate=True)
+conf = corebmtk.Config.from_json(config_file, validate=True)
+```
+
 ### Limitations
 
 Some recoring mechanisms are not yet implemented. See run output for more info.
