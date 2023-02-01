@@ -21,7 +21,6 @@ pc = h.ParallelContext()    # object to access MPI methods
 from bmtk.simulator.bionet import nrn
 from bmtk.simulator.bionet import Config as bmtkConfig
 
-MPI_Rank = int(pc.id())
 
 class Config(bmtkConfig):
 
@@ -41,6 +40,7 @@ class CoreSpikesMod(mods.SpikesMod):
 
     def finalize(self,*args,**kwargs):
         self.block(kwargs['sim'],None)
+        pc.barrier()
         super(CoreSpikesMod, self).finalize(*args,**kwargs)
 
 
@@ -99,6 +99,7 @@ class CoreNetconReport(mods.NetconReport):
             self._curr_step += 1
 
         self.block(kwargs['sim'],None)
+        pc.barrier()
         super(CoreNetconReport, self).finalize(*args,**kwargs)
 
 
@@ -108,7 +109,6 @@ class CoreSomaReport(mods.SomaReport):
         super(CoreSomaReport, self).__init__(*args,**kwargs)
         self.record_dict = {} # gid:{variable:vector}
         self._curr_step = 0
-        h.cvode.cache_efficient(1)
 
     def initialize(self, sim):
         super(CoreSomaReport, self).initialize(sim)
@@ -201,7 +201,7 @@ class CoreECPMod(mods.EcpMod):
                         self.cell_imvec[gid].append(vec)
 
     def finalize(self, sim):
-        io.log_info('Node saving ecp report to {}'.format(self.file_name))
+        io.log_info('Node saving CoreECP Report to {}'.format(self.file_name))
         
         ecp_steps = {}
 
@@ -226,7 +226,7 @@ class CoreECPMod(mods.EcpMod):
                 self._data_block[self._block_step, :] += ecp
             
             self._block_step +=1
-
+        pc.barrier()
         super(CoreECPMod, self).finalize(sim)
 
 
