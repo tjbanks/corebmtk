@@ -190,33 +190,34 @@ class CoreECPMod(mods.EcpMod):
         for gid in self._local_gids:
             flag = pc.gid_exists(gid)
             if flag > 0 :
+                imvecs = []
                 cell = pc.gid2cell(gid)
                 for sec in cell.all: # record _ref_i_membrane_ for each segment
                     for seg in sec:
                         vec = h.Vector()
                         vec.record(seg._ref_i_membrane_)
-                
-                        if not self.cell_imvec.get(gid):
-                            self.cell_imvec[gid] = []
-                        self.cell_imvec[gid].append(vec)
+                        imvecs.append(vec)
+                self.cell_imvec[gid] = imvecs
 
     def finalize(self, sim):
         io.log_info('Node saving CoreECP Report to {}'.format(self.file_name))
         
-        ecp_steps = {}
-
+        ecps = {}
         for gid in self._local_gids:  # compute ecp only from the biophysical cells
             tr = self._rel.get_transfer_resistance(gid)
-            ecp_steps[gid] = np.tensordot(np.array([vec for vec in self.cell_imvec[gid]]).T,tr,axes=((1,1)))
+            ecps[gid] = np.matmul(tr, np.array(self.cell_imvec[gid]))
 
         for n_time in range(sim.n_steps):
 
             if self._block_step == self._block_size:
-                self.block(sim, (n_time-self._block_size, n_time))
+                self.block(sim, (n_time - self._block_size, n_time))
 
             for gid in self._local_gids:
-
-                ecp = ecp_steps[gid][n_time][0]
+                ecp = ecps[gid][:, n_time]
+                # warning: if memory issue occurs, the following is more memory efficient
+                # tr = self._rel.get_transfer_resistance(gid)
+                # im = np.array([v[n_time] for v in self.cell_imvec[gid]])
+                # ecp = np.dot(tr, im) # recording electrode sites at the n_time step
 
                 if gid in self._saved_gids.keys():
                     # save individual contribution
